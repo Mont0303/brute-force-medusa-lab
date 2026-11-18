@@ -1,0 +1,12 @@
+# Wordlist didática de usuários para laboratório controlado
+# Nunca utilize em sistemas sem autorização explícita.
+admin
+administrator
+user
+guest
+msfadmin
+dvwa
+test
+ftpuser
+samba
+root

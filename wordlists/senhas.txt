@@ -1,0 +1,16 @@
+# Wordlist didática de senhas comuns para laboratório controlado
+# Nunca utilize em sistemas sem autorização explícita.
+123456
+password
+admin
+12345678
+qwerty
+letmein
+msfadmin
+dvwa
+root
+toor
+admin123
+pass123
+welcome
+guest

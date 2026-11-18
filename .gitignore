@@ -1,0 +1,14 @@
+# Logs de saída do Medusa / Nmap com dados sensíveis ou temporários
+*.log
+*.gnmap
+*.xml
+medusa_output.txt
+
+# Wordlists grandes externas (não subir arquivos gigantes para o GitHub)
+*.txt.gz
+rockyou.txt
+
+# Python
+__pycache__/
+*.pyc
+.venv/
