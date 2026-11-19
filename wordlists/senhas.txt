@@ -1,5 +1,3 @@
-# Wordlist didática de senhas comuns para laboratório controlado
-# Nunca utilize em sistemas sem autorização explícita.
 123456
 password
 admin

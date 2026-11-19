@@ -1,5 +1,3 @@
-# Wordlist didática de usuários para laboratório controlado
-# Nunca utilize em sistemas sem autorização explícita.
 admin
 administrator
 user

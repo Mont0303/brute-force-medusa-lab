@@ -1,19 +1,19 @@
-# Auditoria de Força Bruta em Ambiente Controlado com Kali Linux e Medusa
+# Auditoria de Força Bruta em Ambiente Controlado (Medusa, Nmap, ffuf e Docker)
 
 > [!IMPORTANT]
-> **Aviso Ético e Educacional**: Todo o conteúdo, scripts e wordlists deste repositório têm finalidade exclusivamente educacional e foram estruturados para execução em **ambiente controlado e isolado** (máquinas virtuais ou containers locais). Nunca execute testes de autenticação contra sistemas sem autorização formal.
+> **Aviso Ético e Educacional**: Todo o conteúdo, scripts, configurações Docker e wordlists deste repositório têm finalidade exclusivamente educacional e foram executados em **ambiente controlado e isolado** (`172.28.0.0/24`). Nunca execute testes de autenticação contra sistemas sem autorização formal.
 
 ---
 
 ## Objetivo do Projeto
 
-Este repositório documenta minha jornada de aprendizado sobre **ataques de força bruta e auditoria de credenciais** utilizando **Kali Linux**, **Nmap** e **Medusa** em três serviços distintos:
+Este repositório documenta minha jornada prática de aprendizado sobre **ataques de força bruta e auditoria de credenciais** em ambiente controlado com **Docker Compose**, utilizando **Nmap**, **Medusa** e **ffuf** em três serviços distintos:
 
-1. **FTP** (porta `21/tcp` — módulo `ftp`)
-2. **Web / DVWA** (porta `80/tcp` — módulos `web-form` / `http`)
-3. **SMB** (portas `139,445/tcp` — módulo `smbnt`)
+1. **FTP** (`172.28.0.10`, porta `21/tcp` — `ProFTPD` / módulo `ftp` do Medusa)
+2. **Web / DVWA** (`172.28.0.20`, porta `80/tcp` — `DVWA` / `ffuf`)
+3. **SMB** (`172.28.0.30`, portas `139,445/tcp` — `Samba` / módulo `smbnt` do Medusa)
 
-Além da abordagem ofensiva (Red Team), o projeto inclui análise de vulnerabilidades, geração de wordlists personalizadas e medidas de mitigação (Blue Team).
+Além da abordagem ofensiva (Red Team), o projeto inclui análise de vulnerabilidades, adaptação de ferramentas diante de limitações reais, geração de wordlists personalizadas e medidas de mitigação (Blue Team).
 
 ---
 
@@ -21,8 +21,13 @@ Além da abordagem ofensiva (Red Team), o projeto inclui análise de vulnerabili
 
 ```text
 brute-force-medusa-lab/
-├── README.md                          # Documentação principal do projeto
+├── README.md                          # Documentação principal e evidências do projeto
+├── docker-compose.yml                 # Orquestração do laboratório isolado (4 containers)
 ├── .gitignore                         # Ignora logs temporários e wordlists gigantes
+├── lab/
+│   ├── ftp/Dockerfile                 # Alvo FTP (ProFTPD)
+│   ├── smb/Dockerfile & smb.conf      # Alvo SMB (Samba com SMBv1/NTLM habilitado para lab)
+│   └── kali/Dockerfile                # Container atacante (nmap, medusa, hydra, ffuf, smbclient)
 ├── docs/
 │   ├── 01-teoria-e-etica.md           # Conceitos (brute force, dicionário, spraying) e ética
 │   ├── 02-nmap-e-medusa.md            # Guia prático comentado de Nmap e Medusa por serviço
@@ -34,89 +39,91 @@ brute-force-medusa-lab/
 ├── scripts/
 │   └── gerar_wordlist.py              # Script Python para criação de wordlists customizadas
 └── images/
-    └── README.md                      # Guia para organização das capturas de tela
+    ├── 01-nmap-scan.png               # Print da varredura Nmap
+    ├── 02-medusa-ftp.png              # Print do brute force no FTP
+    ├── 03-dvwa-login.png              # Print do ataque ao DVWA com ffuf
+    └── 04-medusa-smb.png              # Print do brute force no SMB
 ```
 
 ---
 
 ## Ambiente de Laboratório
 
-- **Máquina Atacante**: Kali Linux (`nmap`, `medusa`, `smbclient`, `python3`)
-- **Alvo Controlado**: *[A preencher: ex. Metasploitable 2 / DVWA em rede Host-Only ou Docker isolado]*
-- **Rede / IP do Alvo**: `<IP_DO_ALVO>` *(substituir pelo IP privado do seu laboratório)*
+O laboratório foi construído em rede Docker isolada (`172.28.0.0/24`) via [docker-compose.yml](docker-compose.yml):
+
+- **Atacante (`lab-kali` — `172.28.0.100`)**: Debian Bookworm com `nmap`, `medusa 2.2`, `ffuf 1.1.0`, `hydra`, `smbclient` e `curl`.
+- **Alvo 1 (`lab-ftp` — `172.28.0.10`)**: servidor FTP (`ProFTPD`).
+- **Alvo 2 (`lab-dvwa` — `172.28.0.20`)**: aplicação web vulnerável **DVWA** (`vulnerables/web-dvwa`, exposta apenas localmente em `127.0.0.1:8080`).
+- **Alvo 3 (`lab-smb` — `172.28.0.30`)**: servidor **Samba** com compartilhamento `labs` e protocolo mínimo `NT1` (SMBv1) habilitado para simular ambiente legado.
 
 ---
 
-## Metodologia Executada
+## Metodologia Executada e Evidências
 
 ### 1. Reconhecimento de Serviços (Nmap)
 
-Antes dos testes de autenticação, realizamos a enumeração de portas e versões para confirmar os serviços ativos:
+Varredura direcionada às portas dos três serviços para identificar estados e versões:
 
 ```bash
-nmap -sV -sC -p 21,80,139,445 <IP_DO_ALVO>
+nmap -sV -sC -p 21,80,139,445 172.28.0.10 172.28.0.20 172.28.0.30
 ```
 
-- **Evidência**: `[A preencher após execução: inserir print em images/01-nmap-scan.png]`
-- **Observações**: *[Descrever aqui as versões identificadas pelo Nmap, ex.: vsftpd, Apache/DVWA, Samba]*
+![Reconhecimento com Nmap](images/01-nmap-scan.png)
 
 ---
 
 ### 2. Cenário 1 — Ataque de Dicionário contra FTP (`21/tcp`)
 
-O protocolo FTP realiza autenticação em texto claro. Utilizamos o módulo `ftp` do Medusa com controle de paralelismo (`-t 4`) e parada imediata ao encontrar credencial válida (`-f`):
+O protocolo FTP realiza autenticação em texto claro. Utilizamos o módulo `ftp` do Medusa com `4` threads (`-t 4`), checagem de senha vazia/igual ao usuário (`-e ns`) e parada imediata ao encontrar credencial válida (`-f`):
 
 ```bash
-medusa -h <IP_DO_ALVO> -U wordlists/usuarios.txt -P wordlists/senhas.txt -M ftp -e ns -t 4 -f
+medusa -h 172.28.0.10 -U /lab/wordlists/usuarios.txt -P /lab/wordlists/senhas.txt -M ftp -e ns -t 4 -f
 ```
 
-- **Resultado obtido**: *[A preencher com o log sanitizado da execução no seu lab]*
-- **Evidência**: `[A preencher: ![Medusa FTP](images/02-medusa-ftp.png)]`
+- **Resultado obtido**: `ACCOUNT FOUND: [ftp] Host: 172.28.0.10 User: msfadmin Password: msfadmin [SUCCESS]`
+- **Nota técnica**: durante os testes iniciais com `vsftpd` em container, o servidor apresentou instabilidade sob múltiplas conexões simultâneas (`SIGSEGV` por isolamento de namespace em Docker); a substituição para `proftpd-core` e a remoção de linhas de comentário `#` das wordlists (que o Medusa testava literalmente) garantiram estabilidade total.
+
+![Ataque FTP com Medusa](images/02-medusa-ftp.png)
 
 ---
 
 ### 3. Cenário 2 — Ataque a Aplicação Web / DVWA (`80/tcp`)
 
-No **DVWA** (*Damn Vulnerable Web Application*), analisamos o formulário de login e o impacto dos níveis de segurança (`Low` vs. `Medium`/`High`):
+No **DVWA** (*Damn Vulnerable Web Application*), configuramos o banco de dados, autenticamos na aplicação e definimos o nível de segurança como **`Low`** na página `/vulnerabilities/brute/`.
 
-1. Inspeção da requisição e dos parâmetros (`username`, `password`, `Login`) e verificação do cookie de sessão (`PHPSESSID` e `security=low`).
-2. Execução do teste automatizado no cenário sem token anti-CSRF:
+- **Adaptação de ferramenta**: ao testar o módulo `web-form.mod` do Medusa `2.2` contra a resposta de sucesso do DVWA com `CUSTOM-HEADER` (`Cookie: PHPSESSID=...; security=low`), a ferramenta apresentou *Segmentation fault* no momento em que o `DENY-SIGNAL` deixava de ocorrer. Seguindo a flexibilidade do desafio para experimentar ferramentas alternativas, utilizamos o **`ffuf`** (*Fast Web Fuzzer*) filtrando a mensagem de falha com `-fr`:
 
 ```bash
-# Verifique antes as opções do módulo na sua versão do Medusa:
-medusa -M web-form -q
-
-# Exemplo para formulário POST sem CSRF token:
-medusa -h <IP_DO_ALVO> -u admin -P wordlists/senhas.txt -M web-form \
-  -m FORM:"login.php" \
-  -m FORM-DATA:"post?username=&password=&Login=Login" \
-  -m DENY-SIGNAL:"Login failed"
+ffuf -u "http://172.28.0.20/vulnerabilities/brute/?username=admin&password=FUZZ&Login=Login" \
+  -w /lab/wordlists/senhas.txt \
+  -H "Cookie: PHPSESSID=<PHPSESSID>; security=low" \
+  -fr "Username and/or password incorrect."
 ```
 
-> [!NOTE]
-> Em níveis mais altos do DVWA (`High`), cada requisição exige um novo `user_token` (anti-CSRF), demonstrando na prática como tokens dinâmicos e atrasos de resposta dificultam ataques automatizados simples.
+- **Resultado obtido**: `password [Status: 200, Size: 4413, Words: 179, Lines: 109]` em `2s` (`0` erros).
 
-- **Resultado obtido**: *[A preencher após execução no seu lab]*
-- **Evidência**: `[A preencher: ![DVWA Web](images/03-dvwa-login.png)]`
+![Ataque Web no DVWA com ffuf](images/03-dvwa-login.png)
 
 ---
 
 ### 4. Cenário 3 — Auditoria de Credenciais SMB (`139,445/tcp`)
 
-O módulo `smbnt` do Medusa testa autenticação contra compartilhamentos SMB/Samba (porta `445/tcp` por padrão):
+O módulo `smbnt` do Medusa testa autenticação contra compartilhamentos SMB/Samba:
 
 ```bash
-medusa -h <IP_DO_ALVO> -U wordlists/usuarios.txt -P wordlists/senhas.txt -M smbnt -m GROUP:LOCAL -t 4 -f
+medusa -h 172.28.0.30 -U /lab/wordlists/usuarios.txt -P /lab/wordlists/senhas.txt -M smbnt -m GROUP:LOCAL -t 4 -f
 ```
 
-Após identificar uma credencial em laboratório, a validação controlada do acesso pode ser feita com:
+Em seguida, validamos o acesso ao compartilhamento `labs` com `smbclient`:
 
 ```bash
-smbclient -L //<IP_DO_ALVO> -U <usuario_encontrado>
+smbclient -L //172.28.0.30 -U samba
 ```
 
-- **Resultado obtido**: *[A preencher após execução no seu lab]*
-- **Evidência**: `[A preencher: ![Medusa SMB](images/04-medusa-smb.png)]`
+- **Resultado obtido**: `ACCOUNT FOUND: [smbnt] Host: 172.28.0.30 User: samba Password: pass123 [SUCCESS (ADMIN$ - Share Unavailable)]`
+- **Nota técnica**: servidores Samba modernos desativam **SMBv1 (`NT1`)** por padrão, o que bloqueava a negociação do `smbnt.mod` (`0xFFFFFF:UNKNOWN_ERROR_CODE`). Ao habilitar `server min protocol = NT1` no laboratório para simular um servidor legado, o ataque obteve sucesso — evidenciando na prática por que desabilitar SMBv1 é uma medida crítica de hardening.
+
+![Ataque SMB com Medusa](images/04-medusa-smb.png)
 
 ---
 
@@ -136,15 +143,17 @@ Resumo das recomendações detalhadas em [docs/03-mitigacao-e-defesa.md](docs/03
 
 | Serviço | Risco Principal | Mitigações Recomendadas |
 | :--- | :--- | :--- |
-| **FTP** | Credenciais em texto claro e login anônimo | Migrar para **SFTP/FTPS**, desabilitar `anonymous`, aplicar **Fail2ban** |
-| **Web (DVWA)** | Ausência de rate limiting e proteção anti-automação | **Tokens anti-CSRF**, *exponential backoff*, CAPTCHA após falhas, MFA e HTTPS |
-| **SMB** | Exposição de rede e credenciais fracas | Bloquear portas `139/445` na borda (usar VPN), desativar SMBv1/NTLMv1, **Account Lockout** equilibrado e SMB Signing |
+| **FTP** | Credenciais em texto claro e senhas fracas | Migrar para **SFTP/FTPS**, desabilitar `anonymous`, aplicar **Fail2ban** |
+| **Web (DVWA)** | Ausência de rate limiting e proteção anti-automação | **Tokens anti-CSRF** (como no nível *High* do DVWA), *exponential backoff*, CAPTCHA após falhas, MFA e HTTPS |
+| **SMB** | Protocolo legado (SMBv1), exposição de rede e senhas fracas | Bloquear portas `139/445` na borda (usar VPN), desativar **SMBv1/NTLMv1**, aplicar **Account Lockout** equilibrado e SMB Signing |
 
 ---
 
 ## Principais Aprendizados
 
-- *[Preencha aqui suas reflexões pessoais após concluir o laboratório: o que foi mais desafiador, diferenças entre os protocolos, comportamento de ferramentas como Medusa e importância de controles defensivos.]*
+- **Wordlists limpas importam**: ferramentas como o Medusa não ignoram comentários `#` em arquivos de wordlist, testando-os literalmente como credenciais.
+- **Comportamento real de ferramentas e protocolos**: saber diagnosticar quando uma ferramenta falha (`web-form.mod` do Medusa dando *segfault*) ou quando um protocolo moderno bloqueia um módulo legado (`SMBv2+` vs `smbnt.mod`) é essencial para adaptar a metodologia com alternativas como `ffuf` e `smbclient`.
+- **Hardening na prática**: pequenas configurações defensivas — como manter SMBv1 desabilitado, usar tokens anti-CSRF por requisição e limitar tentativas por IP — já neutralizam ataques automatizados simples.
 
 ---
 
